@@ -8,8 +8,8 @@ use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\TerminateJob;
 use App\Models\CronStat;
 use App\Models\DebugLog;
+use App\Models\EmailLog;
 use App\Models\Invoice;
-use App\Models\Notification;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Setting;
@@ -170,12 +170,17 @@ class CronJob extends Command
 
             $this->runCronJob('services_suspended', function ($number = 0) {
                 // Suspend orders if due date is overdue for x days
-                Service::where('status', 'active')->where('expires_at', '<', now()->subDays((int) config('settings.cronjob_order_suspend', 2)))->get()->each(function ($service) use (&$number) {
-                    SuspendJob::dispatch($service);
+                Service::where('status', 'active')
+                    ->where('expires_at', '<', now()->subDays((int) config('settings.cronjob_order_suspend', 2)))
+                    ->where(function ($query) {
+                        $query->whereNull('suspend_hold_until')->orWhere('suspend_hold_until', '<', now());
+                    })
+                    ->get()->each(function ($service) use (&$number) {
+                        SuspendJob::dispatch($service);
 
-                    $service->update(['status' => 'suspended']);
-                    $number++;
-                });
+                        $service->update(['status' => 'suspended']);
+                        $number++;
+                    });
 
                 return $number;
             });
@@ -213,9 +218,9 @@ class CronJob extends Command
             });
 
             $this->runCronJob('email_logs_deleted', function ($number = 0) {
-                $number = Notification::where('created_at', '<', now()->subDays((int) config('settings.cronjob_delete_email_logs', 90)))->count();
+                $number = EmailLog::where('created_at', '<', now()->subDays((int) config('settings.cronjob_delete_email_logs', 90)))->count();
                 // Delete email logs older then x
-                Notification::where('created_at', '<', now()->subDays((int) config('settings.cronjob_delete_email_logs', 90)))->delete();
+                EmailLog::where('created_at', '<', now()->subDays((int) config('settings.cronjob_delete_email_logs', 90)))->delete();
 
                 return $number;
             });
